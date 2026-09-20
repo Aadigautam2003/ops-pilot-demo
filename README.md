@@ -1,4 +1,4 @@
-# OpsPilot: Context-to-Action Executive Agent
+<img width="1882" height="1002" alt="image" src="https://github.com/user-attachments/assets/7e39849d-a168-4e54-9513-ccd4fa7305ff" /># OpsPilot: Context-to-Action Executive Agent
 
 OpsPilot turns messy workplace communication (emails, meeting notes, Slack-style updates) into a dependency-aware execution plan, then dispatches actions only after a human approves them.
 
@@ -9,7 +9,7 @@ It does more than summarize. For each message it works out what needs to happen,
 **Status:** hackathon prototype. Extraction uses the Gemini API. Tool dispatch (Jira, Calendar, Slack) is **simulated**; no external accounts are called.
 
 ---
-![Uploading image.png…]()
+
 
 
 ## What it does

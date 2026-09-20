@@ -1,946 +1,168 @@
-# OpsPilot — Context-to-Action Executive Agent
+# OpsPilot: Context-to-Action Executive Agent
 
-![Status](https://img.shields.io/badge/Status-Demo-blue)
-![Python](https://img.shields.io/badge/Python-3.10%2B-green)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-teal)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+OpsPilot turns messy workplace communication (emails, meeting notes, Slack-style updates) into a dependency-aware execution plan, then dispatches actions only after a human approves them.
 
-> **Turn messy communication into approved action.**
+It does more than summarize. For each message it works out what needs to happen, who owns it, when it is due, what depends on what, and what is still unclear. Missing or conflicting information is flagged instead of guessed.
 
-OpsPilot is an AI-powered workflow agent that transforms chaotic workplace communication such as emails, meeting notes, project updates, and Slack-style conversations into **structured, dependency-aware execution plans**.
+> Understand → Extract → Flag uncertainty → Plan → Approve → Execute
 
-Instead of simply summarizing information, OpsPilot identifies **what needs to happen, who is responsible, when it needs to happen, what is uncertain, and what actions should be taken next**.
-
-Before any external action is dispatched, a human reviews and approves the proposed action.
+**Status:** hackathon prototype. Extraction uses the Gemini API. Tool dispatch (Jira, Calendar, Slack) is **simulated**; no external accounts are called.
 
 ---
 
-## 🎯 Problem
+## What it does
 
-Modern teams receive important information through unstructured communication:
+1. **Structured extraction.** Gemini returns a JSON plan constrained to a fixed schema: a summary, a list of uncertainties, and a list of tasks.
+2. **Uncertainty detection.** The prompt tells the model not to invent owners or dates. Ambiguities come back as separate alerts, each with a recommended action.
+3. **Source grounding.** Each task carries a `grounded_snippet`, a quote from the input the model says the task came from.
+4. **Confidence scores.** Each task has a model-reported confidence between 0 and 1. It is a self-assessment, not a calibrated probability.
+5. **Dependencies.** Tasks list prerequisite task IDs, so ordering constraints (patch → QA → checkpoint → migration) are explicit.
+6. **Human approval.** Nothing is dispatched until the user clicks Approve in the UI.
+7. **Simulated dispatch and receipts.** Approved tasks go to a mock Jira, Calendar or Slack handler, which returns a receipt.
 
-* Emails
-* Meeting notes
-* Project updates
-* Chat messages
-* Status reports
-* Requirements documents
-
-These messages often contain a mixture of:
-
-* Tasks
-* Deadlines
-* People and teams
-* Priorities
-* Dependencies
-* Decisions
-* Missing information
-* Conflicting requirements
-
-Turning this information into actual work usually requires manual effort.
-
-For example:
-
-> "DevOps should probably get the connection pool issue fixed before Thursday. We still haven't confirmed who's handling the DB failover. Sarah wants a final checkpoint Friday morning before the production freeze. QA also needs to verify the patch."
-
-A human has to determine:
+## Architecture
 
 ```text
-What are the tasks?
-Who owns them?
-When are they due?
-What depends on what?
-What information is missing?
-What should happen next?
-```
-
-**OpsPilot automates this process while keeping the human in control of execution.**
-
----
-
-# 💡 Solution
-
-OpsPilot creates an end-to-end workflow:
-
-```text
-Unstructured Communication
-          │
-          ▼
-   AI Understanding
-          │
-          ▼
-Structured Task Extraction
-          │
-          ├── Tasks
-          ├── Owners
-          ├── Deadlines
-          ├── Priorities
-          └── Decisions
-          │
-          ▼
- Uncertainty Detection
-          │
-          ▼
- Dependency Analysis
-          │
-          ▼
-   Execution Plan
-          │
-          ▼
- Human Review & Approval
-          │
-          ▼
-     Tool Dispatch
-          │
-      ┌───┼────┐
-      ▼   ▼    ▼
-    Jira Calendar Slack
-      │   │    │
-      └───┼────┘
-          ▼
-   Execution Receipt
-```
-
-The core principle is:
-
-> **Understand → Plan → Verify → Approve → Execute**
-
----
-
-# ✨ Key Features
-
-## 1. Unstructured Input Parsing
-
-Users can provide chaotic workplace communication directly to OpsPilot.
-
-Supported demo input includes:
-
-* Project updates
-* Meeting notes
-* Emails
-* Slack-style conversations
-
-The system converts natural language into structured information.
-
----
-
-## 2. Structured Task Extraction
-
-OpsPilot identifies actionable tasks and extracts relevant attributes.
-
-Example:
-
-```text
-Task:
-Fix database connection pool
-
-Owner:
-DevOps Team
-
-Deadline:
-Thursday
-
-Priority:
-High
-
-Action:
-Create Jira ticket
-```
-
----
-
-## 3. Dependency-Aware Planning
-
-OpsPilot identifies relationships between tasks.
-
-For example:
-
-```text
-Fix Database Patch
-        │
-        ▼
-   QA Verification
-        │
-        ▼
-Production Checkpoint
-        │
-        ▼
- Production Migration
-```
-
-This allows the agent to understand that some actions should happen before others.
-
----
-
-## 4. Uncertainty Detection
-
-OpsPilot does not automatically invent missing information.
-
-For example, if the source says:
-
-> "Someone from DevOps should handle the DB failover."
-
-OpsPilot can flag:
-
-```text
-⚠ Uncertainty Detected
-
-DB failover owner is not explicitly specified.
-
-Action requires confirmation.
-```
-
-Other examples include:
-
-* Missing task owner
-* Ambiguous deadline
-* Missing meeting time
-* Conflicting dates
-* Unclear responsibility
-
----
-
-## 5. Source Grounding
-
-Every extracted task can be traced back to the original source.
-
-Example:
-
-```text
-Task
-Fix database connection pool
-
-Confidence
-96%
-
-Source
-"DevOps should get the connection pool issue
-fixed before Thursday."
-```
-
-This allows users to verify why the agent created a particular task.
-
----
-
-## 6. Confidence Scoring
-
-Each extracted task includes a confidence score representing how clearly the task was identified from the source.
-
-Example:
-
-```text
-Fix database connection pool
-Confidence: 0.96
-```
-
-While ambiguous information can receive a lower confidence score and be accompanied by an uncertainty warning.
-
----
-
-## 7. Human-in-the-Loop Approval
-
-OpsPilot does not blindly execute every action.
-
-Instead:
-
-```text
-AI proposes action
-       │
-       ▼
-Human reviews
-       │
-   ┌───┴────┐
-   ▼        ▼
-Approve   Reject
+index.html (frontend)
+   │  POST /api/analyze   { "text": "..." }
+   ▼
+backend.py (FastAPI)
+   ├─ Gemini structured-output call  ──►  PlanResponse
+   └─ Deterministic fallback plan (if no API key or the call fails)
    │
    ▼
-Execute
+Human review in the UI
+   │  POST /api/execute   { task_id, tool, payload }
+   ▼
+Simulated tool handlers (JIRA / CALENDAR / SLACK_ALERT)  ──►  receipt
 ```
 
-This creates a controlled workflow for actions that may affect external systems.
+**Frontend:** HTML, CSS, JavaScript, Tailwind. Shows the plan, uncertainties, source snippets and approval controls.
+**Backend:** Python, FastAPI, Pydantic, `google-genai`.
 
----
+### Fallback mode
 
-## 8. Tool Dispatch
+If `GEMINI_API_KEY` is unset, or the Gemini call raises an error, `/api/analyze` returns a fixed demo plan (a database patch / production freeze scenario) regardless of the input. This keeps the demo running offline. The server log prints which path was taken. Check it if the output looks identical across different inputs.
 
-The prototype supports simulated tool dispatch for actions such as:
+## API
 
-* Jira ticket creation
-* Calendar event creation
-* Slack notifications
+### `POST /api/analyze`
 
-The current hackathon implementation uses simulated execution so that the complete workflow can be demonstrated without requiring external account credentials.
-
----
-
-## 9. Visual Execution Receipts
-
-After an approved action is dispatched, OpsPilot displays an execution receipt.
-
-Example:
-
-```text
-✓ ACTION EXECUTED
-
-Jira Ticket Created
-
-PAYTM-402
-
-Task:
-Database connection pool patch
-
-Priority:
-HIGH
-
-Status:
-OPEN
-```
-
-This provides visible confirmation that the workflow progressed from planning to execution.
-
----
-
-# 🏗️ System Architecture
-
-```text
-┌───────────────────────────────────────────────────────┐
-│                    OPSPILOT                           │
-└───────────────────────────────────────────────────────┘
-
-             UNSTRUCTURED INPUT
-        ┌─────────────────────────┐
-        │ Email / Notes / Message │
-        └────────────┬────────────┘
-                     │
-                     │ HTTP
-                     ▼
-        ┌─────────────────────────┐
-        │       FRONTEND          │
-        │       index.html        │
-        │                         │
-        │ • Input interface       │
-        │ • Task cards            │
-        │ • Uncertainty panel     │
-        │ • Source inspection     │
-        │ • Approval controls     │
-        │ • Execution receipts    │
-        └────────────┬────────────┘
-                     │
-             POST /api/analyze
-                     │
-                     ▼
-        ┌─────────────────────────┐
-        │       FASTAPI           │
-        │       backend.py        │
-        │                         │
-        │  Analysis Engine        │
-        │  ├─ Task Extraction     │
-        │  ├─ Entity Extraction   │
-        │  ├─ Deadline Detection  │
-        │  ├─ Priority Detection  │
-        │  ├─ Uncertainty Flags   │
-        │  └─ Dependency Analysis │
-        └────────────┬────────────┘
-                     │
-                     ▼
-              STRUCTURED PLAN
-                     │
-                     ▼
-        ┌─────────────────────────┐
-        │    HUMAN APPROVAL       │
-        │                         │
-        │ Review → Approve/Reject │
-        └────────────┬────────────┘
-                     │
-             POST /api/execute
-                     │
-                     ▼
-        ┌─────────────────────────┐
-        │     TOOL DISPATCHER     │
-        │                         │
-        │   ┌─────┐ ┌────────┐    │
-        │   │Jira │ │Calendar│    │
-        │   └─────┘ └────────┘    │
-        │                         │
-        │       ┌───────┐         │
-        │       │ Slack │         │
-        │       └───────┘         │
-        │                         │
-        │    Simulated Tools      │
-        └────────────┬────────────┘
-                     │
-                     ▼
-             EXECUTION RECEIPT
-```
-
----
-
-# 🔄 End-to-End Workflow
-
-### Step 1 — Input
-
-The user provides an unstructured communication.
-
-```text
-"DevOps should fix the connection pool
-before Thursday. QA needs to verify it..."
-```
-
-### Step 2 — Analysis
-
-OpsPilot processes the text and identifies:
-
-```text
-Tasks
-People
-Deadlines
-Priorities
-Dependencies
-Uncertainties
-```
-
-### Step 3 — Planning
-
-The extracted information is converted into an execution plan.
-
-```text
-Task 1 → Fix connection pool
-Task 2 → QA verification
-Task 3 → Schedule checkpoint
-Task 4 → Production migration
-```
-
-### Step 4 — Grounding
-
-Each task can be traced back to the original text.
-
-### Step 5 — Uncertainty Detection
-
-The system identifies information that is missing or ambiguous.
-
-```text
-⚠ Owner not specified
-⚠ Exact time not specified
-⚠ Conflicting migration date
-```
-
-### Step 6 — Human Approval
-
-The user reviews the proposed action.
-
-```text
-[ Approve & Dispatch ]
-```
-
-### Step 7 — Tool Execution
-
-The approved task is sent to the corresponding tool.
-
-```text
-Task → Jira
-```
-
-### Step 8 — Execution Receipt
-
-The interface displays the result.
-
-```text
-✓ Jira Ticket PAYTM-402 Created
-```
-
----
-
-# 🧠 Core Components
-
-## Frontend
-
-**Technology:** HTML, CSS, JavaScript, Tailwind CSS
-
-Responsibilities:
-
-* Accept user input
-* Display analysis results
-* Display uncertainties
-* Display extracted tasks
-* Show source grounding
-* Request human approval
-* Display execution results
-
----
-
-## Backend
-
-**Technology:** Python + FastAPI + Pydantic
-
-Responsibilities:
-
-* Receive user input
-* Analyze and structure information
-* Generate the execution plan
-* Track uncertainty
-* Process execution requests
-* Return execution receipts
-
----
-
-## Analysis Engine
-
-The analysis engine converts unstructured communication into structured objects.
-
-Conceptually:
-
-```text
-Raw Text
-   ↓
-Task Extraction
-   ↓
-Entity Extraction
-   ↓
-Deadline Detection
-   ↓
-Priority Detection
-   ↓
-Uncertainty Detection
-   ↓
-Dependency Analysis
-   ↓
-PlanResponse
-```
-
----
-
-## Tool Dispatcher
-
-The tool dispatcher determines which action should be performed.
-
-Example:
-
-```text
-Action Type: JIRA_TICKET
-        ↓
-Jira Tool
-        ↓
-Execution Receipt
-```
-
-Future integrations could connect the same interface to real external APIs.
-
----
-
-# 📡 API Architecture
-
-## `POST /api/analyze`
-
-Analyzes unstructured text and produces a structured execution plan.
-
-### Request
+Request:
 
 ```json
-{
-  "text": "Hey everyone, quick update from today's call..."
-}
+{ "text": "Hey everyone, quick update from today's call..." }
 ```
 
-### Response
-
-The response contains:
+Response (`PlanResponse`):
 
 ```text
-PlanResponse
-├── summary
-├── uncertainties[]
-└── tasks[]
-      ├── id
-      ├── task
-      ├── assignee
-      ├── deadline
-      ├── priority
-      ├── confidence
-      ├── source_snippet
-      ├── dependencies[]
-      └── tool
+summary: string
+uncertainties[]: { id, field, issue, recommended_action }
+tasks[]:
+  id, title
+  assignee, assignee_status        CONFIRMED | UNCONFIRMED | MISSING
+  deadline, deadline_status        CONFIRMED | UNSPECIFIED
+  priority                         LOW | MEDIUM | HIGH | CRITICAL
+  grounded_snippet, confidence
+  dependencies[]                   IDs of prerequisite tasks
+  tool_target                      JIRA | CALENDAR | SLACK_ALERT
+  execution_payload                tool-specific parameters
+  status                           PENDING_APPROVAL
 ```
 
----
+### `POST /api/execute`
 
-## `POST /api/execute`
-
-Dispatches an approved task.
-
-### Request
+Request:
 
 ```json
-{
-  "task_id": "TSK-101",
-  "tool": "JIRA",
-  "payload": {}
-}
+{ "task_id": "TSK-101", "tool": "JIRA", "payload": {} }
 ```
 
-### Response
+Response (simulated):
 
 ```json
 {
   "status": "SUCCESS",
-  "receipt_id": "PAYTM-402",
-  "state_change": "Jira ticket created"
+  "receipt_id": "PAYTM-3F1",
+  "tool": "Jira Service Desk",
+  "message": "Created Ticket PAYTM-3F1 for task TSK-101.",
+  "state_change": "State updated: UNASSIGNED -> BACKLOG (BLOCKED BY DEPENDENCY)"
 }
 ```
 
----
+Receipt IDs are randomly generated. Any `tool` value other than `JIRA` or `CALENDAR` is handled as a Slack alert.
 
-# 🚀 Quick Start
+## Quick start
 
-## Prerequisites
-
-* Python 3.10+
-* Modern web browser
-
-## 1. Clone the repository
+Requires Python 3.10+ and a modern browser.
 
 ```bash
 git clone <YOUR_REPOSITORY_URL>
-cd ops-pilot-demo
+cd <repo-directory>
+pip install -r requirements.txt   # fastapi, uvicorn, pydantic, google-genai
+
+export GEMINI_API_KEY=your_key    # optional; omit to run in fallback mode
+python backend.py                 # serves on http://127.0.0.1:8000
 ```
 
-## 2. Install dependencies
+Then open `index.html` in a browser.
 
-```bash
-pip install -r requirements.txt
-```
-
-Or:
-
-```bash
-pip install fastapi uvicorn pydantic
-```
-
-## 3. Start the backend
-
-```bash
-python backend.py
-```
-
-The FastAPI server will start at:
+## Project structure
 
 ```text
-http://127.0.0.1:8000
+backend.py        FastAPI app: /api/analyze, /api/execute, schema, fallback plan
+index.html        Frontend dashboard
+requirements.txt  Python dependencies
+README.md
 ```
 
-## 4. Open the frontend
+## Example
 
-Open:
+**Input**
 
 ```text
-index.html
+DevOps should get the connection pool fix done before Thursday. QA still
+needs to verify the patch. We haven't decided who owns the DB failover.
+Sarah wants a checkpoint Friday morning before the production freeze. We
+talked about moving the migration to Monday but I think we're still
+targeting Friday.
 ```
 
-in a modern browser.
+**Output (abridged)**
 
----
+| Task | Owner | Deadline | Tool | Depends on |
+|---|---|---|---|---|
+| Patch DB connection pool | DevOps Team (unconfirmed) | Thursday EOD | Jira | none |
+| QA verification on patch | missing | Before Friday morning | Jira | patch |
+| Schedule production freeze review | Sarah | Friday morning (no time given) | Calendar | QA |
+| Execute production migration | Engineering leads | Friday night (tentative) | Slack | all above |
 
-# 📁 Project Structure
+**Uncertainties flagged:** no named owner for the DB failover; the Friday checkpoint has no time slot; Friday and Monday are both mentioned for the migration.
 
-```text
-ops-pilot-demo/
-│
-├── backend.py
-│   └── FastAPI backend
-│       ├── /api/analyze
-│       ├── /api/execute
-│       ├── task extraction
-│       ├── uncertainty detection
-│       └── tool dispatch simulation
-│
-├── index.html
-│   └── Frontend dashboard
-│       ├── Input interface
-│       ├── Analysis results
-│       ├── Uncertainty panel
-│       ├── Task cards
-│       ├── Source grounding
-│       └── Execution receipts
-│
-├── requirements.txt
-│   └── Python dependencies
-│
-├── .gitignore
-│
-└── README.md
-```
+## Demo flow (about 2.5 minutes)
 
----
+| Time | Step | Point to make |
+|---|---|---|
+| 0:00–0:30 | Paste the sample update and click Analyze | Unstructured text becomes tasks with owners, deadlines and dependencies |
+| 0:30–1:15 | Open the uncertainty panel | The agent flags the missing owner and conflicting dates instead of guessing |
+| 1:15–1:45 | Inspect a task's source snippet | Each task points back to the original text |
+| 1:45–2:30 | Approve & Dispatch | Execution only happens after human approval, and a receipt confirms it |
 
-# 🎬 Hackathon Demo
+## Limitations
 
-The recommended demo takes approximately 2.5 minutes.
+- **Tools are simulated.** Real Jira, Google Calendar and Slack integrations would need OAuth, permissions, retries, error handling and audit logging.
+- **Approval is enforced in the UI only.** `/api/execute` does not check that a task was approved or that its dependencies have run.
+- **Grounding is not verified server-side.** Snippets are requested verbatim from the model but not checked against the input.
+- **Confidence is self-reported by the model.**
+- **No persistence.** Plans and execution state are not stored.
+- **Fallback plan is fixed.** It only matches the built-in demo scenario.
+- **Execution ignores most of the payload.** The Calendar and Slack receipts use fixed text.
 
-| Time      | Action                        | What to demonstrate                                             |
-| --------- | ----------------------------- | --------------------------------------------------------------- |
-| 0:00–0:30 | Analyze chaotic communication | Unstructured text becomes structured tasks                      |
-| 0:30–1:15 | Show uncertainty panel        | Missing owner, ambiguous time and conflicting information       |
-| 1:15–1:45 | Inspect task source           | Task is grounded in the original text                           |
-| 1:45–2:30 | Approve & Dispatch            | Human approval triggers tool execution and an execution receipt |
+## Future work
 
-### Demo narrative
+Real Jira, Calendar and Slack APIs; Gmail and Teams ingestion; server-side approval and dependency checks; verbatim-snippet validation; persistent task state; audit logs and role-based permissions; retrieval over past project documentation.
 
-Start with:
+## License
 
-> "This is a typical project update. It contains useful information, but it's mixed with ambiguity, deadlines and dependencies."
-
-Click **Analyze & Reason Over Plan**.
-
-Then show:
-
-```text
-4 Tasks
-3 High Priority
-3 Uncertainties
-```
-
-Highlight the uncertainty:
-
-> "Instead of inventing an owner, OpsPilot tells us that the owner is missing."
-
-Open **Inspect Source**:
-
-> "Every extracted task can be traced back to the original communication."
-
-Finally:
-
-> "Now I'll approve the action."
-
-Click **Approve & Dispatch**.
-
-Show:
-
-```text
-✓ PAYTM-402
-Jira Ticket Created
-```
-
-The key message:
-
-> **OpsPilot doesn't just summarize the communication. It turns the communication into an approved execution workflow.**
-
----
-
-# 🔐 Human-in-the-Loop Safety
-
-OpsPilot separates **planning** from **execution**.
-
-The AI can propose:
-
-```text
-Create Jira ticket
-Schedule meeting
-Send notification
-```
-
-But the action is not dispatched until the user approves it.
-
-```text
-AI PLAN
-   │
-   ▼
-Human Review
-   │
-   ├── Reject → Stop
-   │
-   └── Approve
-          │
-          ▼
-      Tool Call
-```
-
-This provides a control point before actions that could affect external systems.
-
----
-
-# 🧪 Current Demo vs. Production Version
-
-The current hackathon version focuses on demonstrating the complete workflow.
-
-### Current Demo
-
-```text
-✓ Unstructured input
-✓ Structured task extraction
-✓ Dependency representation
-✓ Uncertainty detection
-✓ Source grounding
-✓ Confidence scores
-✓ Human approval
-✓ Simulated tool execution
-✓ Execution receipts
-```
-
-### Production Extension
-
-A production implementation could replace the deterministic analysis and simulated tools with:
-
-```text
-                Production OpsPilot
-
-Input Sources
-   │
-   ├── Gmail
-   ├── Slack
-   ├── Microsoft Teams
-   └── Documents
-          │
-          ▼
-      LLM / Agent
-          │
-          ▼
-    Structured Output
-          │
-          ▼
-      RAG / Vector DB
-          │
-          ▼
-     Task Planner
-          │
-          ▼
-    Approval Layer
-          │
-          ▼
-      Tool APIs
-          │
-     ┌────┼────┐
-     ▼    ▼    ▼
-   Jira Calendar Slack
-```
-
-Real integrations would require authentication, permissions, API error handling, retries, audit logs and appropriate access controls.
-
----
-
-# 🔮 Future Improvements
-
-Potential extensions include:
-
-* Real Jira API integration
-* Google Calendar integration
-* Slack integration
-* Gmail ingestion
-* Microsoft Teams integration
-* RAG over historical project documentation
-* Persistent task state
-* Advanced dependency graphs
-* Automatic conflict resolution suggestions
-* Role-based permissions
-* Audit logs
-* Action rollback
-* Multi-agent planning
-* Evaluation using task completion and grounding metrics
-
----
-
-# 📊 Example
-
-### Input
-
-```text
-"DevOps should get the connection pool fix
-done before Thursday. QA needs to verify the
-patch. We still haven't decided who owns the
-DB failover. Sarah wants a checkpoint Friday
-morning before the production freeze."
-```
-
-### OpsPilot Output
-
-```text
-SUMMARY
-Prepare the database patch and production
-readiness workflow.
-
-TASK 1
-Fix connection pool
-Owner: DevOps
-Deadline: Thursday
-Priority: High
-Confidence: 0.96
-Action: Jira
-
-TASK 2
-Verify database patch
-Owner: Unassigned
-Deadline: Before production freeze
-Priority: High
-Confidence: 0.84
-Action: Jira
-
-TASK 3
-Schedule production checkpoint
-Owner: Sarah
-Deadline: Friday morning
-Priority: High
-Confidence: 0.91
-Action: Calendar
-```
-
-### Uncertainty
-
-```text
-⚠ DB failover owner is not specified.
-⚠ Exact checkpoint time is not specified.
-```
-
-### Approved execution
-
-```text
-Human:
-Approve Task 1
-
-        ↓
-
-Tool:
-Jira
-
-        ↓
-
-Result:
-✓ PAYTM-402 created
-```
-
----
-
-# 🏆 Why OpsPilot?
-
-Most productivity assistants stop at:
-
-```text
-Understand → Summarize
-```
-
-OpsPilot is designed around:
-
-```text
-Understand
-     ↓
-Extract
-     ↓
-Detect uncertainty
-     ↓
-Plan
-     ↓
-Ground
-     ↓
-Human approval
-     ↓
-Execute
-     ↓
-Report result
-```
-
-The goal is not to replace the human decision-maker.
-
-The goal is to remove the repetitive work between **receiving information and taking action**.
-
----
-
-# 📜 License
-
-MIT License
+MIT

@@ -1,8 +1,3 @@
-
-
----
-
-```markdown
 # OpsPilot: Context-to-Action Executive Agent
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)
@@ -11,237 +6,190 @@
 ![Status](https://img.shields.io/badge/Status-Hackathon_Prototype-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-> **Turn messy workplace communication into approved, verifiable execution plans.**
+> Turn messy workplace communication into approved, verifiable action.
 
-OpsPilot transforms chaotic communication (emails, meeting transcripts, Slack threads) into a dependency-aware execution graph, then dispatches external actions only after explicit human approval.
+OpsPilot reads an unstructured email, meeting note or chat thread and turns it into a dependency-ordered execution plan: who owns what, by when, what blocks what, and what is still unclear. Actions are dispatched to Jira, Calendar or Slack only after a human approves them.
 
-Instead of generating passive summaries, OpsPilot identifies deliverables, responsible owners, deadlines, blockers, and ambiguities—flagging missing context rather than hallucinating facts.
+It does not stop at a summary. Missing owners, vague times and conflicting dates are surfaced as explicit warnings instead of being guessed.
 
----
+![OpsPilot dashboard](https://github.com/user-attachments/assets/7e39849d-a168-4e54-9513-ccd4fa7305ff)
 
-### Dashboard Preview
-
-![OpsPilot Interface](https://github.com/user-attachments/assets/7e39849d-a168-4e54-9513-ccd4fa7305ff)
+> **Prototype scope:** task extraction is live (Gemini). Jira, Calendar and Slack dispatch are **simulated**. No external accounts are touched.
 
 ---
 
-## Core Capabilities
+## How it works
 
-
+```text
+Unstructured text → Extraction → Uncertainty flags → Dependency graph → Human approval → Tool receipt
 ```
 
-Unstructured Input ──► Reasoning & Extraction ──► Uncertainty Check ──► Dependency Graph ──► Human-in-the-Loop ──► Tool Receipt
+| Capability | What it does |
+|---|---|
+| **Structured extraction** | Gemini returns a JSON plan constrained to a fixed schema: tasks, owners, deadlines, priorities, tool targets. |
+| **Uncertainty detection** | The prompt forbids inventing owners or dates. Gaps and conflicts come back as separate alerts with a recommended fix. |
+| **Source grounding** | Each task carries a quoted snippet from the input. The backend checks that the snippet really appears in the text. If not, it lowers the task's confidence and adds a warning. |
+| **Dependencies** | Tasks list prerequisite IDs. Invalid references are dropped, and the server refuses to dispatch a task until its prerequisites have been executed. |
+| **Human approval** | The UI requires an explicit **Approve & Dispatch** click for every task. |
+| **Receipts** | Each dispatch returns a receipt built from the task's own payload (ticket ID, event time, channel). |
 
-```
-
-* **Deterministic Structured Extraction:** Uses the Gemini API with schema enforcement to parse tasks, assignees, deadlines, and priorities directly into typed entities.
-* **Explicit Uncertainty Detection:** Prevents hallucinated planning. Missing DRIs, unstated times, or date conflicts surface as dedicated warning banners with concrete recovery actions.
-* **Verifiable Source Grounding:** Every extracted item indexes the exact snippet from the raw source text for fast verification.
-* **Dependency-Aware Ordering:** Reconstructs explicit blocker chains (e.g., `Patch DB` $\rightarrow$ `QA Verification` $\rightarrow$ `Release Freeze Review` $\rightarrow$ `Canary Deployment`).
-* **Zero-Trust Human-in-the-Loop (HITL):** Decouples reasoning from mutation. Sensitive external side-effects require human verification.
-* **Auditable Tool Receipts:** Dispatches to target tool handlers (Jira, Google Calendar, Slack) and returns auditable state updates.
-
----
+Confidence values are the model's own estimate, not a calibrated probability.
 
 ## Architecture
 
 ```text
-       ┌───────────────────────────────┐
-       │   index.html (Client App)     │
-       │   Tailwind CSS + Vanilla JS   │
-       └──────────────┬────────────────┘
-                      │
-                      │  POST /api/analyze { text }
-                      ▼
-       ┌───────────────────────────────┐
-       │     backend.py (FastAPI)      │
-       ├───────────────────────────────┤
-       │ 1. Gemini Structured Engine   │──► PlanResponse (Schema Enforced)
-       │ 2. Offline Fallback Guard     │──► Deterministic Scenario (Wi-Fi proof)
-       └──────────────┬────────────────┘
-                      │
-                      │  Human Review & Approval in UI
-                      ▼
-       ┌───────────────────────────────┐
-       │     POST /api/execute         │
-       ├───────────────────────────────┤
-       │ 3. Simulated Tool Dispatchers │──► Jira Service Desk (PAYTM-XXX)
-       │    (Receipt Engine)           │──► Google Calendar Event
-       │                               │──► Slack Alert Broadcaster
-       └───────────────────────────────┘
-
+index.html  (Tailwind + vanilla JS)
+     │  POST /api/analyze  { "text": "..." }
+     ▼
+backend.py  (FastAPI)
+     ├─ Gemini call with JSON schema  ──►  verify snippets, clean dependencies  ──►  PlanResponse (source: "live")
+     └─ Fallback demo plan (no key, or Gemini call fails)                       ──►  PlanResponse (source: "fallback")
+     │
+     ▼
+Human review in the UI
+     │  POST /api/execute  { task_id, tool, payload }
+     ▼
+Dependency check  ──►  simulated Jira / Calendar / Slack  ──►  receipt
 ```
 
-### Network-Resilient Offline Fallback
+### Fallback mode
 
-To ensure smooth demonstrations during unstable network conditions or rate limits, `/api/analyze` includes an automatic failover guard. If `GEMINI_API_KEY` is not present or an upstream connection fails, the backend switches to a cached production scenario to keep UI execution uninterrupted.
+If `GEMINI_API_KEY` is missing or the Gemini call raises an error, `/api/analyze` returns a fixed demo plan so the UI keeps working offline. That plan is the same for any input, so every response carries `"source": "live"` or `"source": "fallback"`, and the dashboard badge shows which one you got. If results look identical across different inputs, check the server log for the error.
 
----
+## Quick start
 
-## API Specification
+Requires Python 3.10+ and a modern browser.
+
+```bash
+git clone <YOUR_REPOSITORY_URL>
+cd opspilot
+pip install -r requirements.txt    # fastapi, uvicorn, pydantic, google-genai
+```
+
+Set your Gemini API key as an environment variable. Never commit it.
+
+```bash
+# macOS / Linux
+export GEMINI_API_KEY="your-key"
+
+# Windows PowerShell
+$env:GEMINI_API_KEY="your-key"
+```
+
+Optionally choose a model (default: `gemini-2.5-flash`):
+
+```bash
+export GEMINI_MODEL="gemini-2.5-flash"
+```
+
+Start the backend, then open `index.html` in your browser:
+
+```bash
+python backend.py     # http://127.0.0.1:8000  (interactive docs at /docs)
+```
+
+Without a key the app still runs, in fallback mode.
+
+## API
 
 ### `POST /api/analyze`
 
-Extracts tasks, dependencies, and uncertainties from raw text.
-
-* **Request:**
 ```json
-{
-  "text": "DevOps should fix the connection pool issue before Thursday..."
-}
-
+{ "text": "DevOps should fix the connection pool issue before Thursday..." }
 ```
 
+Returns a `PlanResponse`:
 
-* **Response (`PlanResponse`):**
-```json
-{
-  "summary": "Sprint alignment on DB connection pool fix and Friday release freeze.",
-  "uncertainties": [
-    {
-      "id": "UNC-1",
-      "field": "DB Failover Ownership",
-      "issue": "DevOps mentioned generally, but specific DRI is not assigned.",
-      "recommended_action": "Block execution until owner is confirmed."
-    }
-  ],
-  "tasks": [
-    {
-      "id": "TSK-101",
-      "title": "Patch DB Connection Pool",
-      "assignee": "DevOps Team",
-      "assignee_status": "UNCONFIRMED",
-      "deadline": "Thursday EOD",
-      "deadline_status": "CONFIRMED",
-      "priority": "HIGH",
-      "grounded_snippet": "We should probably get the connection pool issue fixed before Thursday.",
-      "confidence": 0.94,
-      "dependencies": [],
-      "tool_target": "JIRA",
-      "execution_payload": {
-        "project": "PAYTM",
-        "issue_type": "Bug Fix",
-        "priority": "High"
-      },
-      "status": "PENDING_APPROVAL"
-    }
-  ]
-}
-
+```text
+summary        string
+source         "live" | "fallback"
+uncertainties  [{ id, field, issue, recommended_action }]
+tasks          [{
+                 id, title,
+                 assignee, assignee_status      CONFIRMED | UNCONFIRMED | MISSING
+                 deadline, deadline_status      CONFIRMED | UNSPECIFIED
+                 priority                       LOW | MEDIUM | HIGH | CRITICAL
+                 grounded_snippet, confidence
+                 dependencies                   IDs of prerequisite tasks
+                 tool_target                    JIRA | CALENDAR | SLACK_ALERT
+                 execution_payload, status
+               }]
 ```
-
-
-
----
 
 ### `POST /api/execute`
 
-Dispatches a reviewed task to the target provider.
-
-* **Request:**
 ```json
-{
-  "task_id": "TSK-101",
-  "tool": "JIRA",
-  "payload": {
-    "project": "PAYTM",
-    "issue_type": "Bug Fix"
-  }
-}
-
+{ "task_id": "TSK-101", "tool": "JIRA", "payload": {} }
 ```
 
+Success:
 
-* **Response:**
 ```json
 {
   "status": "SUCCESS",
   "receipt_id": "PAYTM-3F1",
-  "tool": "Jira Service Desk",
-  "message": "Created Ticket PAYTM-3F1 for task TSK-101.",
-  "state_change": "State updated: UNASSIGNED -> BACKLOG (BLOCKED BY DEPENDENCY)"
+  "tool": "Jira (simulated)",
+  "message": "Created ticket PAYTM-3F1: Patch DB Connection Pool.",
+  "state_change": "Bug Fix created, priority High"
 }
-
 ```
 
+Errors: `404` if the task is not part of the current plan, `409` if it is blocked by tasks that have not been executed yet.
 
+## Example
 
----
+**Input**
 
-## Quick Start
-
-### Prerequisites
-
-* Python 3.10+
-* Modern Chromium-based browser (Chrome, Edge, Brave)
-
-### Installation
-
-1. Clone the repository and enter the directory:
-```bash
-git clone <YOUR_REPOSITORY_URL>
-cd opspilot
-
+```text
+We should probably get the connection pool issue fixed before Thursday. DevOps
+said they'll take a look, although I don't think we've confirmed who is actually
+responsible for the DB failover. Sarah mentioned that we should have a final
+checkpoint Friday morning before the production freeze. QA still needs to verify
+the patch. Also, Mike can't attend Friday's meeting. We had some discussion about
+moving the migration to Monday but I think we're still targeting Friday.
 ```
 
+**Output (abridged)**
 
-2. Install dependencies:
-```bash
-pip install fastapi uvicorn pydantic google-genai
+| Task | Owner | Due | Tool | Depends on |
+|---|---|---|---|---|
+| Patch DB connection pool | DevOps (unconfirmed) | Thursday EOD | Jira | none |
+| QA verification on patch | missing | Before Friday morning | Jira | patch |
+| Schedule production freeze review | Sarah | Friday morning | Calendar | QA |
+| Execute production migration | Engineering leads | Friday night (tentative) | Slack | all above |
 
-```
+**Flagged as uncertain:** no named owner for the DB failover, no time for the Friday checkpoint, and Friday versus Monday for the migration.
 
+## Demo flow (about 2.5 minutes)
 
-3. Configure your API key (Optional—fallback mode activates if omitted):
-* **Windows (PowerShell):**
-```powershell
-$env:GEMINI_API_KEY="your-gemini-api-key"
-python backend.py
+1. **Analyze:** paste the sample and click *Analyze & Reason Over Plan*. Messy text becomes tasks with owners, deadlines and dependencies.
+2. **Uncertainties:** show the warning panel. The agent flags the missing owner and the date conflict instead of guessing.
+3. **Grounding:** click *Inspect Source* on a task to see the exact sentence it came from.
+4. **Approve:** dispatch the unblocked task first. Blocked tasks stay locked until their prerequisites are done. Show the receipt.
 
-```
-
-
-* **macOS / Linux:**
-```bash
-export GEMINI_API_KEY="your-gemini-api-key"
-python backend.py
-
-```
-
-
-
-
-4. Launch the dashboard:
-* Open `index.html` directly in your browser.
-
-
----
-
-## Project Structure
+## Project structure
 
 ```text
 opspilot/
-├── backend.py        # FastAPI engine: /api/analyze, /api/execute, schemas & fallback
-├── index.html        # Single-file dashboard (Tailwind CSS, state manager, HITL UI)
-├── requirements.txt  # Python environment dependencies
-└── README.md         # Project documentation & runbook
-
+├── backend.py        FastAPI app: /api/analyze, /api/execute, schema, fallback plan
+├── index.html        Single-file dashboard
+├── requirements.txt  fastapi, uvicorn, pydantic, google-genai
+└── README.md
 ```
 
----
+## Limitations
 
-## Engineering Limitations & Roadmap
+- **Simulated tools.** Real Jira, Google Calendar and Slack integrations need OAuth, permissions, retries and audit logs.
+- **Approval is a UI control.** The server enforces dependency order but does not verify that a human clicked Approve. A production version would require a signed approval.
+- **Single-plan, in-memory state.** Analyzing new text replaces the previous plan, and state is lost on restart. There is no multi-user support.
+- **Model-dependent quality.** Extraction accuracy depends on the LLM. Snippet verification catches fabricated quotes but not wrong interpretations.
+- **Short inputs.** Built for single messages, not long transcripts.
+- **Open CORS.** The backend allows all origins for local demo convenience.
 
-* **Mock Tool Execution:** Production deployments require OAuth token flows, rate limiting, and webhook validation for Jira, Google Workspace, and Slack.
-* **Client-Enforced State:** Approval states currently manage in the client runtime; production setups should validate signatures on the server before dispatching.
-* **Corpus Scale:** Designed for scoped messages. Long transcripts will use a retrieval-augmented chunking step before entity extraction.
+## Roadmap
 
----
+Real Jira/Calendar/Slack APIs, Gmail and Teams ingestion, signed approvals with audit logs, persistent task state, role-based permissions, and chunked processing for long transcripts.
 
 ## License
 
-Distributed under the [MIT License](https://www.google.com/search?q=LICENSE&utm_source=gemini).
-
-```
-
-```
+MIT

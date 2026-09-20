@@ -1,4 +1,4 @@
-Here is a polished, hackathon-ready `README.md` that keeps your crisp technical explanations while adding visual badges, structured layout framing, and prominent positioning for your dashboard screenshot.
+
 
 ---
 

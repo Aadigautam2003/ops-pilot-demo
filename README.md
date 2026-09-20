@@ -9,6 +9,8 @@ It does more than summarize. For each message it works out what needs to happen,
 **Status:** hackathon prototype. Extraction uses the Gemini API. Tool dispatch (Jira, Calendar, Slack) is **simulated**; no external accounts are called.
 
 ---
+![Uploading image.png…]()
+
 
 ## What it does
 

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OpsPilot: Context-to-Action Executive Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
+
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-6 py-4 flex justify-between items-center sticky top-0 z-50">
+    <div class="flex items-center space-x-3">
+      <div class="bg-blue-600 p-2 rounded-lg text-white font-bold text-lg"><i class="fa-solid fa-robot"></i></div>
+      <div>
+        <h1 class="font-bold text-lg leading-none">OpsPilot</h1>
+        <p class="text-xs text-slate-400 mt-1">Autonomous Context-to-Action & Workflow Agent</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-4">
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-950 text-emerald-400 border border-emerald-800">
+        <span class="w-1.5 h-1.5 mr-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+        Engine Online: Port 8000
+      </span>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- Left Column: Input and Raw Grounding Inspector -->
+    <div class="lg:col-span-5 space-y-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <div class="flex justify-between items-center mb-3">
+          <label class="text-sm font-semibold text-slate-300">Unstructured Document Ingestion</label>
+          <button onclick="loadSample()" class="text-xs text-blue-400 hover:text-blue-300 transition">
+            <i class="fa-solid fa-paste mr-1"></i> Load Chaotic Email
+          </button>
+        </div>
+        <textarea id="rawInput" rows="9" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-300 font-mono focus:outline-none focus:border-blue-500 transition leading-relaxed"></textarea>
+        
+        <button id="analyzeBtn" onclick="runPipeline()" class="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center space-x-2 transition shadow-lg shadow-blue-600/20">
+          <i class="fa-solid fa-bolt"></i>
+          <span>Analyze & Reason Over Plan</span>
+        </button>
+      </div>
+
+      <!-- Grounding Inspector Box -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center">
+          <i class="fa-solid fa-magnifying-glass mr-2"></i> Grounded Source Reference
+        </h3>
+        <div id="groundingView" class="text-xs text-slate-400 bg-slate-950 border border-slate-800/80 rounded-lg p-3.5 italic">
+          Click "Inspect Source" on any task to verify source attribution.
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Agentic Plan & Execution -->
+    <div class="lg:col-span-7 space-y-6">
+      <!-- Uncertainty & Missing Info Panel -->
+      <div id="uncertaintyContainer" class="hidden bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
+        <div class="flex items-center space-x-2 text-amber-400 text-sm font-semibold mb-2">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="uncertaintyTitle">Uncertainty Flags (Missing Info)</span>
+        </div>
+        <div id="uncertaintyList" class="space-y-2 text-xs text-slate-300"></div>
+      </div>
+
+      <!-- Dependency Action Plan Queue -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h2 class="font-semibold text-slate-200">Execution Plan & Dependencies</h2>
+            <p class="text-xs text-slate-400">Human-In-The-Loop review required before dispatching external APIs</p>
+          </div>
+          <span id="taskCountBadge" class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">0 Tasks</span>
+        </div>
+
+        <div id="tasksContainer" class="space-y-4">
+          <div class="text-center py-12 text-slate-500 text-sm">
+            Load an input and hit "Analyze & Reason" to construct the execution graph.
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const SAMPLE_TEXT = `Subject: Friday migration / DB thing / urgent
+Hey everyone, quick update from today's call.
+We should probably get the connection pool issue fixed before Thursday. DevOps said they'll take a look, although I don't think we've confirmed who is actually responsible for the DB failover.
+Sarah mentioned that we should have a final checkpoint Friday morning before the production freeze.
+QA still needs to verify the patch.
+Also, Mike can't attend Friday's meeting.
+We had some discussion about moving the migration to Monday but I think we're still targeting Friday.
+Please make sure everyone is aligned.
+Thanks.`;
+
+    function loadSample() {
+      document.getElementById('rawInput').value = SAMPLE_TEXT;
+    }
+
+    async function runPipeline() {
+      const btn = document.getElementById('analyzeBtn');
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Reasoning over dependencies...</span>`;
+      btn.disabled = true;
+
+      try {
+        const response = await fetch('http://127.0.0.1:8000/api/analyze', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text: document.getElementById('rawInput').value})
+        });
+        const data = await response.json();
+        renderPlan(data);
+      } catch (err) {
+        alert("Backend not reachable at http://127.0.0.1:8000. Check terminal.");
+      } finally {
+        btn.innerHTML = `<i class="fa-solid fa-bolt"></i> <span>Analyze & Reason Over Plan</span>`;
+        btn.disabled = false;
+      }
+    }
+
+    function renderPlan(data) {
+      // Render Uncertainties
+      const uncBox = document.getElementById('uncertaintyContainer');
+      const uncList = document.getElementById('uncertaintyList');
+      uncList.innerHTML = '';
+      if(data.uncertainties.length > 0) {
+        uncBox.classList.remove('hidden');
+        data.uncertainties.forEach(u => {
+          uncList.innerHTML += `
+            <div class="bg-amber-900/20 border border-amber-800/40 p-2.5 rounded-lg">
+              <div class="font-semibold text-amber-300">⚠ ${u.field}: <span class="font-normal text-slate-300">${u.issue}</span></div>
+              <div class="text-[11px] text-slate-400 mt-1"><strong>Action:</strong> ${u.recommended_action}</div>
+            </div>`;
+        });
+      }
+
+      // Render Tasks
+      document.getElementById('taskCountBadge').innerText = `${data.tasks.length} Executable Tasks`;
+      const container = document.getElementById('tasksContainer');
+      container.innerHTML = '';
+
+      data.tasks.forEach(task => {
+        const deps = task.dependencies.length > 0 
+          ? `<span class="text-[11px] bg-slate-800 text-amber-400 px-2 py-0.5 rounded border border-amber-900/40">Blocked by: ${task.dependencies.join(', ')}</span>`
+          : `<span class="text-[11px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-900/50">Ready to execute</span>`;
+
+        const assigneeBadge = task.assignee_status === "MISSING" 
+          ? `<span class="text-rose-400 font-bold">⚠ Unassigned</span>` 
+          : task.assignee;
+
+        container.innerHTML += `
+          <div id="card-${task.id}" class="bg-slate-950 border border-slate-800 rounded-xl p-4 transition hover:border-slate-700">
+            <div class="flex justify-between items-start gap-4">
+              <div>
+                <div class="flex items-center space-x-2">
+                  <span class="text-xs font-mono font-bold text-blue-400">${task.id}</span>
+                  <h4 class="font-semibold text-sm text-slate-100">${task.title}</h4>
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-900/50">${task.priority}</span>
+                </div>
+                <div class="text-xs text-slate-400 mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                  <span><strong>Owner:</strong> ${assigneeBadge}</span>
+                  <span><strong>Due:</strong> ${task.deadline}</span>
+                  <span><strong>Target Tool:</strong> <span class="font-mono text-slate-200">${task.tool_target}</span></span>
+                </div>
+              </div>
+              <div class="text-right flex flex-col items-end">
+                <span class="text-[11px] text-slate-400">Confidence: ${(task.confidence * 100).toFixed(0)}%</span>
+                <button onclick="inspectSnippet('${escape(task.grounded_snippet)}', '${task.id}')" class="mt-1 text-[11px] text-blue-400 hover:underline">Inspect Source</button>
+              </div>
+            </div>
+
+            <div class="mt-3 pt-3 border-t border-slate-900 flex justify-between items-center">
+              <div class="flex items-center space-x-2">${deps}</div>
+              <button id="btn-${task.id}" onclick="executeAction('${task.id}', '${task.tool_target}')" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition flex items-center space-x-1.5">
+                <span>Approve & Dispatch →</span>
+              </button>
+            </div>
+
+            <div id="receipt-${task.id}" class="hidden mt-3 p-3 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono"></div>
+          </div>`;
+      });
+    }
+
+    function inspectSnippet(snippet, id) {
+      document.getElementById('groundingView').innerHTML = `
+        <span class="font-bold text-blue-400 block mb-1">Extracted for [${id}]:</span>
+        "${unescape(snippet)}"`;
+    }
+
+    async function executeAction(taskId, tool) {
+      const btn = document.getElementById(`btn-${taskId}`);
+      btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Executing...`;
+      btn.disabled = true;
+
+      const res = await fetch('http://127.0.0.1:8000/api/execute', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task_id: taskId, tool: tool, payload: {}})
+      });
+      const data = await res.json();
+
+      btn.className = "bg-emerald-900/60 border border-emerald-700 text-emerald-300 text-xs font-semibold px-3 py-1.5 rounded-lg cursor-default";
+      btn.innerHTML = `<i class="fa-solid fa-check mr-1"></i> Executed`;
+
+      const receipt = document.getElementById(`receipt-${taskId}`);
+      receipt.classList.remove('hidden');
+      receipt.innerHTML = `
+        <div class="text-emerald-400 font-bold mb-1">✓ TOOL DISPATCH RECEIPT (${data.receipt_id})</div>
+        <div class="text-slate-300">${data.message}</div>
+        <div class="text-slate-500 text-[11px] mt-1">${data.state_change}</div>`;
+    }
+
+    // Auto-load on open
+    window.onload = loadSample;
+  </script>
+</body>
+</html>
